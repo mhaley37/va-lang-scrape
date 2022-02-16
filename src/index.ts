@@ -3,6 +3,7 @@ import { paginateRest } from '@octokit/plugin-paginate-rest';
 import fs = require('node:fs');
 import { argv } from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { arrayBuffer } from 'stream/consumers';
 
 type repoStub = {
     name: string, 
@@ -37,11 +38,24 @@ collectLangData(updatedSince)
     console.log(`There were ${langAggregate.length} repositories found ${ updatedSince ? 'updated since ' + updatedSince : ''}.`);
 });
     
+function chunkArray<T>(arr: Array<T>, size: number) {
+    let result: T[][] = [];
+    for (let i = 0; i < arr.length; i += size) {
+        let chunk = arr.slice(i, i + size)
+        result.push(chunk)
+    }
+    return result
+}
 
 async function collectLangData(updatedAfter?: string) {
    const repos = await getReposForOrg(org,updatedAfter);
    if (repos) {
-       await Promise.all(repos.map( repo => getLanguagesForRepos(repo)));
+       // Chunk array else will likely run into rate limit issues
+       const newArr = chunkArray(repos,10);
+       for ( let i=0; i < newArr.length; i++) {
+          const batch = newArr[i];
+          await Promise.all(batch.map( repo => totalLanguagesForRepo(repo)));
+       }
    }
 }
 async function getReposForOrg(org: string, updatedSince?: string) {
@@ -59,7 +73,7 @@ async function getReposForOrg(org: string, updatedSince?: string) {
     }
 }
 
-async function getLanguagesForRepos(repo: repoStub) {
+async function totalLanguagesForRepo(repo: repoStub) {
     try {
         const rsp = await getRepoLanguages(org,repo.name);
         const repoLangs: langBytes[] = [];
