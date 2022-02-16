@@ -1,0 +1,8 @@
+node_modules
+dist
+.key
+.env
+.env.test
+.apiKey
+out
+yarn-error.log
