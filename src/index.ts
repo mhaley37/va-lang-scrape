@@ -2,8 +2,6 @@ import { Octokit} from '@octokit/core';
 import { paginateRest } from '@octokit/plugin-paginate-rest';
 import fs = require('node:fs');
 import { argv } from 'node:process';
-import { fileURLToPath } from 'node:url';
-import { arrayBuffer } from 'stream/consumers';
 
 type repoStub = {
     name: string, 
@@ -12,7 +10,8 @@ type repoStub = {
 
 type langBytes = {
     language: string, 
-    bytes: number
+    bytes: number,
+    percent?: number
 };
 
 const langsByRepo: (repoStub & {languages: langBytes[]})[] = [];
@@ -29,13 +28,15 @@ const updatedSince = argv[2];
 collectLangData(updatedSince)
 .then( _=> {
     // TODO: Handle fs errors
-    const sortedAgg = langAggregate.sort( (a, b) => b.bytes - a.bytes);
+    const totalBytes = langAggregate.reduce( (prev, curr) => {return prev + curr.bytes}, 0 );
+    const sortedAgg = langAggregate.sort( (a, b) => b.bytes - a.bytes).map( ele => {
+        return {...ele, ...{percent: ele.bytes / totalBytes}}});
     !fs.existsSync('out') ? fs.mkdirSync('out') : '';
     const fileDateValue = updatedSince ? '-' + updatedSince : '';
     fs.writeFileSync(`out/language-tally${fileDateValue}.json`, JSON.stringify(sortedAgg));
     fs.writeFileSync(`out/language-by-repo${updatedSince ? '-' + updatedSince : ''}.json`,JSON.stringify(langsByRepo));
     console.log(sortedAgg);
-    console.log(`There were ${langAggregate.length} repositories found ${ updatedSince ? 'updated since ' + updatedSince : ''}.`);
+    console.log(`There were ${langAggregate.length} languages found ${ updatedSince ? 'updated since ' + updatedSince : ''}.`);
 });
     
 function chunkArray<T>(arr: Array<T>, size: number) {
@@ -49,6 +50,7 @@ function chunkArray<T>(arr: Array<T>, size: number) {
 
 async function collectLangData(updatedAfter?: string) {
    const repos = await getReposForOrg(org,updatedAfter);
+   console.log(`There are ${repos?.length} repos entered AFTER ${updatedAfter}`);
    if (repos) {
        // Chunk array else will likely run into rate limit issues
        const newArr = chunkArray(repos,10);
@@ -61,6 +63,7 @@ async function collectLangData(updatedAfter?: string) {
 async function getReposForOrg(org: string, updatedSince?: string) {
     try {
         const repos = await octokit.paginate('GET /orgs/{org}/repos', {org, per_page: 100});
+        console.log(`There were ${repos.length} total repos found`);
         const filterFn = (r: typeof repos[number]) => !(updatedSince && (!r.updated_at || updatedSince > r.updated_at));
         return repos.filter( filterFn).map( r => {
             return {name: r.name, lastUpdated: r.updated_at};
